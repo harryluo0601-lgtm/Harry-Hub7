@@ -1,5 +1,4 @@
-
-    gui:Destroy-- Harry Hub | Roblox Studio 自製遊戲版
+-- Harry Hub | Roblox Studio 自製遊戲版
 -- 移動速度、飛行、穿牆、ESP、鎖頭、拖曳、最小化、關閉、重生保留
 
 local Players = game:GetService("Players")
@@ -1100,5 +1099,4 @@ close.Activated:Connect(function()
 end)
 
 print("Harry Hub 已載入")
-
 
