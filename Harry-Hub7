@@ -1,12 +1,11 @@
--- Harry Hub | Roblox Studio 自製遊戲版
--- 移動速度、飛行、穿牆、ESP、拖曳、最小化、關閉、重生保留
--- 放在 StarterPlayer > StarterPlayerScripts > LocalScript
+
+    gui:Destroy-- Harry Hub | Roblox Studio 自製遊戲版
+-- 移動速度、飛行、穿牆、ESP、鎖頭、拖曳、最小化、關閉、重生保留
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local GuiService = game:GetService("GuiService")
 
 local player = Players.LocalPlayer
 if not player then return end
@@ -186,7 +185,7 @@ local noclipToggle = makeButton(
 
 makeLabel("穿牆會關閉角色自身碰撞", 281)
 
--- 新增 ESP 開關
+-- ESP
 local espToggle = makeButton(
     content, "ESP開關", "ESP：已關閉",
     UDim2.fromOffset(0, 310),
@@ -196,7 +195,7 @@ local espToggle = makeButton(
 
 makeLabel("紅色輪廓・玩家名稱・距離", 349)
 
--- 鎖頭開關與自訂快捷鍵
+-- 鎖頭與快捷鍵
 local lockToggle = makeButton(
     content, "鎖頭開關", "鎖頭：已關閉",
     UDim2.fromOffset(0, 378),
@@ -204,9 +203,10 @@ local lockToggle = makeButton(
     Color3.fromRGB(42, 42, 46)
 )
 
-makeLabel("開啟後按住左鍵，鎖定螢幕中心最近的玩家頭部", 416)
+makeLabel("開啟後按住左鍵，鏡頭追蹤螢幕中心最近的玩家頭部", 416)
 
 makeLabel("鎖頭快捷鍵（單一英文字母）", 443, 0, 230)
+
 local lockKeyBox = Instance.new("TextBox")
 lockKeyBox.Name = "鎖頭快捷鍵輸入"
 lockKeyBox.Position = UDim2.fromOffset(0, 468)
@@ -232,7 +232,7 @@ local lockKeyApply = makeButton(
 local lockStatus = makeLabel("鎖頭快捷鍵：Q", 505)
 
 --==================================================
--- 狀態
+-- 狀態與自動調整介面
 --==================================================
 
 local walkSpeed = 16
@@ -250,11 +250,11 @@ local closed = false
 local viewportConnection
 local cameraChangedConnection
 
--- 依照目前所有控制項的高度調整視窗；螢幕不夠高時改用捲動，避免穿模。
 local function resizePanel()
     if closed or minimizedState then return end
 
     local contentBottom = 0
+
     for _, child in ipairs(content:GetChildren()) do
         if child:IsA("GuiObject") then
             local bottom = child.Position.Y.Offset + child.Size.Y.Offset
@@ -266,7 +266,10 @@ local function resizePanel()
 
     local desiredHeight = math.max(300, contentBottom + 74)
     local camera = Workspace.CurrentCamera
-    local maxHeight = camera and math.max(180, camera.ViewportSize.Y - 20) or 620
+    local maxHeight = camera
+        and math.max(180, camera.ViewportSize.Y - 20)
+        or 620
+
     local actualHeight = math.min(desiredHeight, maxHeight)
 
     main.Size = UDim2.fromOffset(360, actualHeight)
@@ -283,14 +286,20 @@ local function watchCurrentCamera()
         viewportConnection:Disconnect()
         viewportConnection = nil
     end
+
     local camera = Workspace.CurrentCamera
+
     if camera then
-        viewportConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(resizePanel)
+        viewportConnection =
+            camera:GetPropertyChangedSignal("ViewportSize"):Connect(resizePanel)
     end
+
     resizePanel()
 end
 
-cameraChangedConnection = Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCurrentCamera)
+cameraChangedConnection =
+    Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCurrentCamera)
+
 watchCurrentCamera()
 
 local flightConnection
@@ -312,6 +321,7 @@ resizePanel()
 
 local function getCharacterParts()
     local character = player.Character
+
     if not character then
         return nil, nil, nil
     end
@@ -334,9 +344,7 @@ local function parseSpeed(box, status, label)
 end
 
 walkApply.Activated:Connect(function()
-    local n = parseSpeed(
-        walkBox, walkStatus, "目前移動速度"
-    )
+    local n = parseSpeed(walkBox, walkStatus, "目前移動速度")
     if not n then return end
 
     walkSpeed = n
@@ -348,9 +356,7 @@ walkApply.Activated:Connect(function()
 end)
 
 flyApply.Activated:Connect(function()
-    local n = parseSpeed(
-        flyBox, flyStatus, "目前飛行速度"
-    )
+    local n = parseSpeed(flyBox, flyStatus, "目前飛行速度")
     if n then
         flySpeed = n
     end
@@ -377,6 +383,7 @@ local function stopFlying()
         if oldPlatformStand ~= nil then
             flightHumanoid.PlatformStand = oldPlatformStand
         end
+
         if oldAutoRotate ~= nil then
             flightHumanoid.AutoRotate = oldAutoRotate
         end
@@ -422,8 +429,7 @@ local function startFlying()
     flyToggle.BackgroundColor3 = Color3.fromRGB(150, 25, 35)
 
     flightConnection = RunService.Heartbeat:Connect(function()
-        if closed or not flying
-            or not root.Parent or not bodyVelocity then
+        if closed or not flying or not root.Parent or not bodyVelocity then
             stopFlying()
             return
         end
@@ -437,18 +443,23 @@ local function startFlying()
         if UIS:IsKeyDown(Enum.KeyCode.W) then
             direction += cf.LookVector
         end
+
         if UIS:IsKeyDown(Enum.KeyCode.S) then
             direction -= cf.LookVector
         end
+
         if UIS:IsKeyDown(Enum.KeyCode.D) then
             direction += cf.RightVector
         end
+
         if UIS:IsKeyDown(Enum.KeyCode.A) then
             direction -= cf.RightVector
         end
+
         if UIS:IsKeyDown(Enum.KeyCode.Space) then
             direction += Vector3.yAxis
         end
+
         if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
             direction -= Vector3.yAxis
         end
@@ -459,9 +470,7 @@ local function startFlying()
 
         bodyVelocity.Velocity = direction * flySpeed
 
-        local look = Vector3.new(
-            cf.LookVector.X, 0, cf.LookVector.Z
-        )
+        local look = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
 
         if look.Magnitude > 0.001 then
             root.CFrame = CFrame.lookAt(
@@ -508,6 +517,7 @@ local function restoreAllCollisions()
                 part.CanCollide = original
             end
         end
+
         oldCollisions[character] = nil
     end
 end
@@ -526,11 +536,9 @@ local function applyNoclipToCharacter(character)
         applyNoclipToPart(character, part)
     end
 
-    noclipDescendantConnection = character.DescendantAdded:Connect(
-        function(part)
-            applyNoclipToPart(character, part)
-        end
-    )
+    noclipDescendantConnection = character.DescendantAdded:Connect(function(part)
+        applyNoclipToPart(character, part)
+    end)
 end
 
 local function setNoclip(enabled)
@@ -579,7 +587,7 @@ noclipToggle.Activated:Connect(function()
 end)
 
 --==================================================
--- ESP：紅色貼身輪廓、名稱與距離
+-- ESP：紅色輪廓、玩家名稱與距離
 --==================================================
 
 local espObjects = {}
@@ -594,16 +602,19 @@ local function removeESP(targetPlayer)
         if objects.highlight then
             objects.highlight:Destroy()
         end
+
         if objects.billboard then
             objects.billboard:Destroy()
         end
+
         espObjects[targetPlayer] = nil
     end
 end
 
 local function createESP(targetPlayer, character)
-    if not espEnabled or closed then return end
-    if targetPlayer == player then return end
+    if not espEnabled or closed or targetPlayer == player then
+        return
+    end
 
     removeESP(targetPlayer)
 
@@ -614,22 +625,20 @@ local function createESP(targetPlayer, character)
     local root = character:FindFirstChild("HumanoidRootPart")
 
     if not humanoid or not head or not root then
-        -- 角色尚未載入完成時稍後再試
         task.spawn(function()
             local readyHead = character:WaitForChild("Head", 8)
             local readyRoot = character:WaitForChild("HumanoidRootPart", 8)
-            local readyHumanoid =
-                character:FindFirstChildOfClass("Humanoid")
+            local readyHumanoid = character:FindFirstChildOfClass("Humanoid")
 
             if espEnabled and not closed
                 and readyHead and readyRoot and readyHumanoid then
                 createESP(targetPlayer, character)
             end
         end)
+
         return
     end
 
-    -- 紅色輪廓：整個角色模型，包括頭部
     local highlight = Instance.new("Highlight")
     highlight.Name = "HarryHubESPHighlight"
     highlight.Adornee = character
@@ -640,7 +649,6 @@ local function createESP(targetPlayer, character)
     highlight.OutlineTransparency = 0
     highlight.Parent = character
 
-    -- 頭上方標籤
     local billboard = Instance.new("BillboardGui")
     billboard.Name = "HarryHubESPLabel"
     billboard.Adornee = head
@@ -719,7 +727,6 @@ espToggle.Activated:Connect(function()
     setESP(not espEnabled)
 end)
 
--- 玩家加入與離開
 espPlayerAddedConnection = Players.PlayerAdded:Connect(function(targetPlayer)
     watchPlayer(targetPlayer)
 end)
@@ -733,14 +740,12 @@ espPlayerRemovingConnection = Players.PlayerRemoving:Connect(function(targetPlay
     end
 end)
 
--- 初始登記現有玩家
 for _, targetPlayer in ipairs(Players:GetPlayers()) do
     if targetPlayer ~= player then
         watchPlayer(targetPlayer)
     end
 end
 
--- 更新距離：顯示 Roblox studs 的數字，但標籤使用 m
 local distanceAccumulator = 0
 
 local espUpdateConnection = RunService.Heartbeat:Connect(function(dt)
@@ -751,9 +756,7 @@ local espUpdateConnection = RunService.Heartbeat:Connect(function(dt)
     distanceAccumulator = 0
 
     local myCharacter = player.Character
-    local myRoot = myCharacter
-        and myCharacter:FindFirstChild("HumanoidRootPart")
-
+    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
     if not myRoot then return end
 
     for targetPlayer, objects in pairs(espObjects) do
@@ -784,7 +787,7 @@ local espUpdateConnection = RunService.Heartbeat:Connect(function(dt)
 end)
 
 --==================================================
--- 鎖頭：開啟總開關後，按住左鍵鎖定畫面中心附近的玩家頭部
+-- 鎖頭：鏡頭追蹤螢幕中心最近的玩家頭部
 --==================================================
 
 local function setLockEnabled(enabled)
@@ -795,7 +798,7 @@ local function setLockEnabled(enabled)
     if lockEnabled then
         lockToggle.Text = "鎖頭：已開啟"
         lockToggle.BackgroundColor3 = Color3.fromRGB(150, 25, 35)
-        lockStatus.Text = "鎖頭已開啟；按住左鍵開始鎖定"
+        lockStatus.Text = "已開啟：按住左鍵追蹤玩家頭部"
     else
         lockToggle.Text = "鎖頭：已關閉"
         lockToggle.BackgroundColor3 = Color3.fromRGB(42, 42, 46)
@@ -816,6 +819,7 @@ lockKeyApply.Activated:Connect(function()
     end
 
     local newKey = Enum.KeyCode[keyText]
+
     if not newKey then
         lockStatus.Text = "這個快捷鍵無效"
         return
@@ -826,9 +830,15 @@ lockKeyApply.Activated:Connect(function()
     lockStatus.Text = "鎖頭快捷鍵：" .. keyText
 end)
 
+-- 判斷滑鼠是否位於 Harry Hub 介面上
 local function mouseOverHub()
     local mousePos = UIS:GetMouseLocation()
-    local objects = GuiService:GetGuiObjectsAtPosition(mousePos.X, mousePos.Y)
+
+    -- 使用 PlayerGui 查詢滑鼠位置上的 GUI 元件
+    local objects = playerGui:GetGuiObjectsAtPosition(
+        mousePos.X,
+        mousePos.Y
+    )
 
     for _, object in ipairs(objects) do
         if object:IsDescendantOf(gui) then
@@ -839,12 +849,14 @@ local function mouseOverHub()
     return false
 end
 
+-- 選擇螢幕中心最近、且在畫面內的其他玩家
 local function findLockTarget()
     local camera = Workspace.CurrentCamera
     if not camera then return nil end
 
     local viewport = camera.ViewportSize
     local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
+
     local bestPlayer = nil
     local bestDistance = math.huge
 
@@ -852,13 +864,19 @@ local function findLockTarget()
         if targetPlayer ~= player then
             local character = targetPlayer.Character
             local head = character and character:FindFirstChild("Head")
-            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local humanoid = character
+                and character:FindFirstChildOfClass("Humanoid")
 
             if head and humanoid and humanoid.Health > 0 then
-                local screenPoint, onScreen = camera:WorldToViewportPoint(head.Position)
+                local screenPoint, onScreen =
+                    camera:WorldToViewportPoint(head.Position)
 
                 if onScreen and screenPoint.Z > 0 then
-                    local point = Vector2.new(screenPoint.X, screenPoint.Y)
+                    local point = Vector2.new(
+                        screenPoint.X,
+                        screenPoint.Y
+                    )
+
                     local distanceFromCenter = (point - center).Magnitude
 
                     if distanceFromCenter < bestDistance then
@@ -878,9 +896,11 @@ UIS.InputBegan:Connect(function(input, gameProcessed)
 
     if input.UserInputType == Enum.UserInputType.Keyboard then
         if UIS:GetFocusedTextBox() then return end
+
         if not gameProcessed and input.KeyCode == lockHotkey then
             setLockEnabled(not lockEnabled)
         end
+
         return
     end
 
@@ -899,28 +919,40 @@ UIS.InputEnded:Connect(function(input)
     end
 end)
 
-local lockConnection = RunService.RenderStepped:Connect(function()
-    if closed or not lockEnabled or not leftHeld then return end
-    if mouseOverHub() then return end
+local lockRenderName = "HarryHub_LockCamera_" .. player.UserId
 
-    local camera = Workspace.CurrentCamera
-    if not camera then return end
+RunService:BindToRenderStep(
+    lockRenderName,
+    Enum.RenderPriority.Camera.Value + 1,
+    function()
+        if closed or not lockEnabled or not leftHeld then return end
+        if mouseOverHub() then return end
 
-    local character = lockedTarget and lockedTarget.Character
-    local head = character and character:FindFirstChild("Head")
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local camera = Workspace.CurrentCamera
+        if not camera then return end
 
-    if not head or not humanoid or humanoid.Health <= 0 then
-        lockedTarget = findLockTarget()
-        character = lockedTarget and lockedTarget.Character
-        head = character and character:FindFirstChild("Head")
-        humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local character = lockedTarget and lockedTarget.Character
+        local head = character and character:FindFirstChild("Head")
+        local humanoid = character
+            and character:FindFirstChildOfClass("Humanoid")
+
+        if not head or not humanoid or humanoid.Health <= 0 then
+            lockedTarget = findLockTarget()
+
+            character = lockedTarget and lockedTarget.Character
+            head = character and character:FindFirstChild("Head")
+            humanoid = character
+                and character:FindFirstChildOfClass("Humanoid")
+        end
+
+        if head and humanoid and humanoid.Health > 0 then
+            camera.CFrame = CFrame.lookAt(
+                camera.CFrame.Position,
+                head.Position
+            )
+        end
     end
-
-    if head and humanoid and humanoid.Health > 0 then
-        camera.CFrame = CFrame.lookAt(camera.CFrame.Position, head.Position)
-    end
-end)
+)
 
 --==================================================
 -- 重生保留
@@ -932,6 +964,7 @@ player.CharacterAdded:Connect(function(character)
     end
 
     local humanoid = character:WaitForChild("Humanoid", 10)
+
     if humanoid and not closed then
         humanoid.WalkSpeed = walkSpeed
     end
@@ -1016,9 +1049,7 @@ close.Activated:Connect(function()
     setESP(false)
     setLockEnabled(false)
 
-    if lockConnection then
-        lockConnection:Disconnect()
-    end
+    RunService:UnbindFromRenderStep(lockRenderName)
 
     if noclipConnection then
         noclipConnection:Disconnect()
@@ -1069,3 +1100,5 @@ close.Activated:Connect(function()
 end)
 
 print("Harry Hub 已載入")
+
+
