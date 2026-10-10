@@ -1,10 +1,11 @@
 -- Harry Hub | Roblox Studio 自製遊戲版
--- 移動速度、飛行、穿牆、ESP、鎖頭、拖曳、最小化、關閉、重生保留
+-- 移動速度、飛行、穿牆、ESP、鎖頭、中心準心、拖曳、最小化、關閉、重生保留
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
+local GuiService = game:GetService("GuiService")
 
 local player = Players.LocalPlayer
 if not player then return end
@@ -23,9 +24,26 @@ gui.ResetOnSpawn = false
 gui.DisplayOrder = 999
 gui.Parent = playerGui
 
+-- 中心準心
+local reticle = Instance.new("Frame")
+reticle.Name = "中心準心"
+reticle.Size = UDim2.fromOffset(4, 4)
+reticle.AnchorPoint = Vector2.new(0.5, 0.5)
+reticle.Position = UDim2.fromScale(0.5, 0.5)
+reticle.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+reticle.BorderSizePixel = 0
+reticle.Visible = false
+reticle.ZIndex = 1000
+reticle.Parent = gui
+
+local reticleStroke = Instance.new("UIStroke")
+reticleStroke.Color = Color3.fromRGB(20, 20, 20)
+reticleStroke.Thickness = 1
+reticleStroke.Parent = reticle
+
 local main = Instance.new("Frame")
-main.Size = UDim2.fromOffset(360, 620)
-main.Position = UDim2.new(0.5, -180, 0.5, -310)
+main.Size = UDim2.fromOffset(360, 560)
+main.Position = UDim2.new(0.5, -180, 0.5, -280)
 main.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
 main.BorderSizePixel = 0
 main.Active = true
@@ -85,16 +103,17 @@ local close = makeButton(
     Color3.fromRGB(190, 35, 45)
 )
 
+-- 可捲動內容，避免新增功能後被介面裁切
 local content = Instance.new("ScrollingFrame")
 content.Name = "功能內容"
 content.Position = UDim2.fromOffset(12, 52)
 content.Size = UDim2.new(1, -24, 1, -62)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
-content.CanvasSize = UDim2.new(0, 0, 0, 0)
+content.CanvasSize = UDim2.new(0, 0, 0, 540)
 content.AutomaticCanvasSize = Enum.AutomaticSize.Y
 content.ScrollingDirection = Enum.ScrollingDirection.Y
-content.ScrollBarThickness = 6
+content.ScrollBarThickness = 5
 content.ScrollBarImageColor3 = Color3.fromRGB(190, 35, 45)
 content.ClipsDescendants = true
 content.Parent = main
@@ -184,7 +203,6 @@ local noclipToggle = makeButton(
 
 makeLabel("穿牆會關閉角色自身碰撞", 281)
 
--- ESP
 local espToggle = makeButton(
     content, "ESP開關", "ESP：已關閉",
     UDim2.fromOffset(0, 310),
@@ -194,7 +212,7 @@ local espToggle = makeButton(
 
 makeLabel("紅色輪廓・玩家名稱・距離", 349)
 
--- 鎖頭與快捷鍵
+-- 鎖頭
 local lockToggle = makeButton(
     content, "鎖頭開關", "鎖頭：已關閉",
     UDim2.fromOffset(0, 378),
@@ -202,7 +220,7 @@ local lockToggle = makeButton(
     Color3.fromRGB(42, 42, 46)
 )
 
-makeLabel("開啟後按住左鍵，鏡頭追蹤螢幕中心最近的玩家頭部", 416)
+makeLabel("開啟後按住左鍵，鏡頭追蹤畫面中心最近的玩家頭部", 416)
 
 makeLabel("鎖頭快捷鍵（單一英文字母）", 443, 0, 230)
 
@@ -231,7 +249,7 @@ local lockKeyApply = makeButton(
 local lockStatus = makeLabel("鎖頭快捷鍵：Q", 505)
 
 --==================================================
--- 狀態與自動調整介面
+-- 狀態
 --==================================================
 
 local walkSpeed = 16
@@ -246,60 +264,6 @@ local lockHotkey = Enum.KeyCode.Q
 local lockedTarget = nil
 local minimizedState = false
 local closed = false
-local viewportConnection
-local cameraChangedConnection
-
-local function resizePanel()
-    if closed or minimizedState then return end
-
-    local contentBottom = 0
-
-    for _, child in ipairs(content:GetChildren()) do
-        if child:IsA("GuiObject") then
-            local bottom = child.Position.Y.Offset + child.Size.Y.Offset
-            if bottom > contentBottom then
-                contentBottom = bottom
-            end
-        end
-    end
-
-    local desiredHeight = math.max(300, contentBottom + 74)
-    local camera = Workspace.CurrentCamera
-    local maxHeight = camera
-        and math.max(180, camera.ViewportSize.Y - 20)
-        or 620
-
-    local actualHeight = math.min(desiredHeight, maxHeight)
-
-    main.Size = UDim2.fromOffset(360, actualHeight)
-    main.Position = UDim2.new(0.5, -180, 0.5, -actualHeight / 2)
-    content.Size = UDim2.new(1, -24, 1, -62)
-end
-
-content.ChildAdded:Connect(function()
-    task.defer(resizePanel)
-end)
-
-local function watchCurrentCamera()
-    if viewportConnection then
-        viewportConnection:Disconnect()
-        viewportConnection = nil
-    end
-
-    local camera = Workspace.CurrentCamera
-
-    if camera then
-        viewportConnection =
-            camera:GetPropertyChangedSignal("ViewportSize"):Connect(resizePanel)
-    end
-
-    resizePanel()
-end
-
-cameraChangedConnection =
-    Workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchCurrentCamera)
-
-watchCurrentCamera()
 
 local flightConnection
 local noclipConnection
@@ -311,8 +275,6 @@ local oldPlatformStand
 
 local oldCollisions = {}
 local noclipDescendantConnection
-
-resizePanel()
 
 --==================================================
 -- 角色與速度
@@ -786,15 +748,16 @@ local espUpdateConnection = RunService.Heartbeat:Connect(function(dt)
 end)
 
 --==================================================
--- 鎖頭：鏡頭追蹤螢幕中心最近的玩家頭部
+-- 鎖頭：選擇畫面中心最近的玩家頭部
 --==================================================
 
 local function setLockEnabled(enabled)
     lockEnabled = enabled
     leftHeld = false
     lockedTarget = nil
+    reticle.Visible = enabled
 
-    if lockEnabled then
+    if enabled then
         lockToggle.Text = "鎖頭：已開啟"
         lockToggle.BackgroundColor3 = Color3.fromRGB(150, 25, 35)
         lockStatus.Text = "已開啟：按住左鍵追蹤玩家頭部"
@@ -818,9 +781,8 @@ lockKeyApply.Activated:Connect(function()
     end
 
     local newKey = Enum.KeyCode[keyText]
-
     if not newKey then
-        lockStatus.Text = "這個快捷鍵無效"
+        lockStatus.Text = "快捷鍵無效"
         return
     end
 
@@ -829,15 +791,9 @@ lockKeyApply.Activated:Connect(function()
     lockStatus.Text = "鎖頭快捷鍵：" .. keyText
 end)
 
--- 判斷滑鼠是否位於 Harry Hub 介面上
 local function mouseOverHub()
     local mousePos = UIS:GetMouseLocation()
-
-    -- 使用 PlayerGui 查詢滑鼠位置上的 GUI 元件
-    local objects = playerGui:GetGuiObjectsAtPosition(
-        mousePos.X,
-        mousePos.Y
-    )
+    local objects = GuiService:GetGuiObjectsAtPosition(mousePos.X, mousePos.Y)
 
     for _, object in ipairs(objects) do
         if object:IsDescendantOf(gui) then
@@ -848,14 +804,12 @@ local function mouseOverHub()
     return false
 end
 
--- 選擇螢幕中心最近、且在畫面內的其他玩家
 local function findLockTarget()
     local camera = Workspace.CurrentCamera
     if not camera then return nil end
 
     local viewport = camera.ViewportSize
     local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
-
     local bestPlayer = nil
     local bestDistance = math.huge
 
@@ -871,11 +825,7 @@ local function findLockTarget()
                     camera:WorldToViewportPoint(head.Position)
 
                 if onScreen and screenPoint.Z > 0 then
-                    local point = Vector2.new(
-                        screenPoint.X,
-                        screenPoint.Y
-                    )
-
+                    local point = Vector2.new(screenPoint.X, screenPoint.Y)
                     local distanceFromCenter = (point - center).Magnitude
 
                     if distanceFromCenter < bestDistance then
@@ -891,15 +841,12 @@ local function findLockTarget()
 end
 
 UIS.InputBegan:Connect(function(input, gameProcessed)
-    if closed then return end
+    if closed or gameProcessed then return end
+    if UIS:GetFocusedTextBox() then return end
 
-    if input.UserInputType == Enum.UserInputType.Keyboard then
-        if UIS:GetFocusedTextBox() then return end
-
-        if not gameProcessed and input.KeyCode == lockHotkey then
-            setLockEnabled(not lockEnabled)
-        end
-
+    if input.UserInputType == Enum.UserInputType.Keyboard
+        and input.KeyCode == lockHotkey then
+        setLockEnabled(not lockEnabled)
         return
     end
 
@@ -918,6 +865,7 @@ UIS.InputEnded:Connect(function(input)
     end
 end)
 
+-- 在 Roblox 預設鏡頭更新後執行追蹤
 local lockRenderName = "HarryHub_LockCamera_" .. player.UserId
 
 RunService:BindToRenderStep(
@@ -937,7 +885,6 @@ RunService:BindToRenderStep(
 
         if not head or not humanoid or humanoid.Health <= 0 then
             lockedTarget = findLockTarget()
-
             character = lockedTarget and lockedTarget.Character
             head = character and character:FindFirstChild("Head")
             humanoid = character
@@ -981,11 +928,9 @@ minimize.Activated:Connect(function()
     minimizedState = not minimizedState
     content.Visible = not minimizedState
 
-    if minimizedState then
-        main.Size = UDim2.fromOffset(360, 42)
-    else
-        resizePanel()
-    end
+    main.Size = minimizedState
+        and UDim2.fromOffset(360, 42)
+        or UDim2.fromOffset(360, 560)
 
     minimize.Text = minimizedState and "+" or "－"
 end)
@@ -1081,16 +1026,6 @@ close.Activated:Connect(function()
         inputChangedConnection:Disconnect()
     end
 
-    if viewportConnection then
-        viewportConnection:Disconnect()
-        viewportConnection = nil
-    end
-
-    if cameraChangedConnection then
-        cameraChangedConnection:Disconnect()
-        cameraChangedConnection = nil
-    end
-
     if dragInputConnection then
         dragInputConnection:Disconnect()
     end
@@ -1099,4 +1034,3 @@ close.Activated:Connect(function()
 end)
 
 print("Harry Hub 已載入")
-
