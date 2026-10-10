@@ -1,11 +1,17 @@
--- Harry Hub | Roblox Studio 自製遊戲版
--- 移動速度、飛行、穿牆、ESP、鎖頭、中心準心、拖曳、最小化、關閉、重生保留
+
+-- Harry Hub | Roblox Studio 測試整合版
+-- 放在 StarterPlayer > StarterPlayerScripts > LocalScript
+-- 僅限 Studio 測試環境
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
-local GuiService = game:GetService("GuiService")
+
+if not RunService:IsStudio() then
+    warn("Harry Hub 測試版只能在 Roblox Studio 使用")
+    return
+end
 
 local player = Players.LocalPlayer
 if not player then return end
@@ -13,6 +19,40 @@ if not player then return end
 local playerGui = player:WaitForChild("PlayerGui")
 local oldGui = playerGui:FindFirstChild("HarryHub")
 if oldGui then oldGui:Destroy() end
+
+local closed = false
+local walkSpeed = 16
+local flySpeed = 50
+local flying = false
+local noclipEnabled = false
+local espEnabled = false
+local teleportEnabled = false
+local minimizedState = false
+
+local connections = {}
+local oldCollisions = {}
+local espObjects = {}
+local bodyVelocity
+local flightConnection
+local noclipConnection
+local noclipDescendantConnection
+local flightHumanoid
+local flightRoot
+local oldAutoRotate
+local oldPlatformStand
+
+local function track(connection)
+    table.insert(connections, connection)
+    return connection
+end
+
+local function getCharacterParts()
+    local character = player.Character
+    if not character then return nil, nil, nil end
+    return character,
+        character:FindFirstChildOfClass("Humanoid"),
+        character:FindFirstChild("HumanoidRootPart")
+end
 
 --==================================================
 -- 介面
@@ -24,26 +64,9 @@ gui.ResetOnSpawn = false
 gui.DisplayOrder = 999
 gui.Parent = playerGui
 
--- 中心準心
-local reticle = Instance.new("Frame")
-reticle.Name = "中心準心"
-reticle.Size = UDim2.fromOffset(4, 4)
-reticle.AnchorPoint = Vector2.new(0.5, 0.5)
-reticle.Position = UDim2.fromScale(0.5, 0.5)
-reticle.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
-reticle.BorderSizePixel = 0
-reticle.Visible = false
-reticle.ZIndex = 1000
-reticle.Parent = gui
-
-local reticleStroke = Instance.new("UIStroke")
-reticleStroke.Color = Color3.fromRGB(20, 20, 20)
-reticleStroke.Thickness = 1
-reticleStroke.Parent = reticle
-
 local main = Instance.new("Frame")
-main.Size = UDim2.fromOffset(360, 560)
-main.Position = UDim2.new(0.5, -180, 0.5, -280)
+main.Size = UDim2.fromOffset(360, 490)
+main.Position = UDim2.new(0.5, -180, 0.5, -245)
 main.BackgroundColor3 = Color3.fromRGB(20, 20, 23)
 main.BorderSizePixel = 0
 main.Active = true
@@ -103,30 +126,22 @@ local close = makeButton(
     Color3.fromRGB(190, 35, 45)
 )
 
--- 可捲動內容，避免新增功能後被介面裁切
 local content = Instance.new("ScrollingFrame")
-content.Name = "功能內容"
+content.Name = "功能列表"
 content.Position = UDim2.fromOffset(12, 52)
 content.Size = UDim2.new(1, -24, 1, -62)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
-content.CanvasSize = UDim2.new(0, 0, 0, 540)
-content.AutomaticCanvasSize = Enum.AutomaticSize.Y
-content.ScrollingDirection = Enum.ScrollingDirection.Y
 content.ScrollBarThickness = 5
-content.ScrollBarImageColor3 = Color3.fromRGB(190, 35, 45)
-content.ClipsDescendants = true
+content.CanvasSize = UDim2.fromOffset(0, 450)
 content.Parent = main
 
 local function makeLabel(text, y, posX, width)
     local l = Instance.new("TextLabel")
     l.Position = UDim2.fromOffset(posX or 0, y)
-    l.Size = UDim2.new(1, -(posX or 0), 0, 22)
-
-    if width then
-        l.Size = UDim2.fromOffset(width, 22)
-    end
-
+    l.Size = width
+        and UDim2.fromOffset(width, 22)
+        or UDim2.new(1, -(posX or 0), 0, 22)
     l.BackgroundTransparency = 1
     l.Text = text
     l.TextColor3 = Color3.fromRGB(230, 230, 230)
@@ -155,173 +170,87 @@ local function makeInput(name, default, y)
     return box
 end
 
--- 移動速度
+local inactiveColor = Color3.fromRGB(42, 42, 46)
+local activeColor = Color3.fromRGB(150, 25, 35)
+
+-- 速度
 makeLabel("移動速度（1～100000）", 0, 0, 205)
 makeLabel("基礎值：16", 0, 210, 120).TextColor3 =
     Color3.fromRGB(180, 180, 180)
 
 local walkBox = makeInput("移動速度輸入", "16", 24)
-
 local walkApply = makeButton(
     content, "套用移動速度", "套用速度",
     UDim2.fromOffset(155, 24),
-    UDim2.new(1, -155, 0, 34),
-    Color3.fromRGB(180, 30, 42)
+    UDim2.new(1, -155, 0, 34), activeColor
 )
-
 local walkStatus = makeLabel("目前移動速度：16", 60)
 
 -- 飛行速度
 makeLabel("飛行速度（1～100000）", 87)
-
 local flyBox = makeInput("飛行速度輸入", "50", 111)
-
 local flyApply = makeButton(
     content, "套用飛行速度", "套用飛行速度",
     UDim2.fromOffset(155, 111),
-    UDim2.new(1, -155, 0, 34),
-    Color3.fromRGB(180, 30, 42)
+    UDim2.new(1, -155, 0, 34), activeColor
 )
-
 local flyStatus = makeLabel("目前飛行速度：50", 147)
 
 local flyToggle = makeButton(
     content, "飛行開關", "飛行：已關閉",
     UDim2.fromOffset(0, 176),
-    UDim2.new(1, 0, 0, 34),
-    Color3.fromRGB(42, 42, 46)
+    UDim2.new(1, 0, 0, 34), inactiveColor
 )
-
-makeLabel("WASD 移動，鏡頭控制飛行方向", 213)
+makeLabel("WASD 移動，空白鍵上升，Ctrl 下降", 213)
 
 local noclipToggle = makeButton(
     content, "穿牆開關", "穿牆：已關閉",
     UDim2.fromOffset(0, 242),
-    UDim2.new(1, 0, 0, 34),
-    Color3.fromRGB(42, 42, 46)
+    UDim2.new(1, 0, 0, 34), inactiveColor
 )
-
 makeLabel("穿牆會關閉角色自身碰撞", 281)
 
 local espToggle = makeButton(
     content, "ESP開關", "ESP：已關閉",
     UDim2.fromOffset(0, 310),
-    UDim2.new(1, 0, 0, 34),
-    Color3.fromRGB(42, 42, 46)
+    UDim2.new(1, 0, 0, 34), inactiveColor
 )
-
 makeLabel("紅色輪廓・玩家名稱・距離", 349)
 
--- 鎖頭
-local lockToggle = makeButton(
-    content, "鎖頭開關", "鎖頭：已關閉",
-    UDim2.fromOffset(0, 378),
-    UDim2.new(1, 0, 0, 34),
-    Color3.fromRGB(42, 42, 46)
+-- 新增：左鍵傳送開關
+local teleportToggle = makeButton(
+    content, "左鍵傳送開關", "左鍵傳送：已關閉",
+    UDim2.fromOffset(0, 376),
+    UDim2.new(1, 0, 0, 34), inactiveColor
 )
 
-makeLabel("開啟後按住左鍵，鏡頭追蹤畫面中心最近的玩家頭部", 416)
-
-makeLabel("鎖頭快捷鍵（單一英文字母）", 443, 0, 230)
-
-local lockKeyBox = Instance.new("TextBox")
-lockKeyBox.Name = "鎖頭快捷鍵輸入"
-lockKeyBox.Position = UDim2.fromOffset(0, 468)
-lockKeyBox.Size = UDim2.fromOffset(90, 32)
-lockKeyBox.BackgroundColor3 = Color3.fromRGB(42, 42, 46)
-lockKeyBox.BorderSizePixel = 0
-lockKeyBox.Text = "Q"
-lockKeyBox.PlaceholderText = "例如 Q"
-lockKeyBox.TextColor3 = Color3.new(1, 1, 1)
-lockKeyBox.TextSize = 14
-lockKeyBox.Font = Enum.Font.Gotham
-lockKeyBox.ClearTextOnFocus = false
-lockKeyBox.Parent = content
-Instance.new("UICorner", lockKeyBox).CornerRadius = UDim.new(0, 6)
-
-local lockKeyApply = makeButton(
-    content, "套用鎖頭快捷鍵", "套用按鍵",
-    UDim2.fromOffset(100, 468),
-    UDim2.new(1, -100, 0, 32),
-    Color3.fromRGB(180, 30, 42)
-)
-
-local lockStatus = makeLabel("鎖頭快捷鍵：Q", 505)
-
 --==================================================
--- 狀態
+-- 移動速度
 --==================================================
-
-local walkSpeed = 16
-local flySpeed = 50
-
-local flying = false
-local noclipEnabled = false
-local espEnabled = false
-local lockEnabled = false
-local leftHeld = false
-local lockHotkey = Enum.KeyCode.Q
-local lockedTarget = nil
-local minimizedState = false
-local closed = false
-
-local flightConnection
-local noclipConnection
-local bodyVelocity
-local flightHumanoid
-local flightRoot
-local oldAutoRotate
-local oldPlatformStand
-
-local oldCollisions = {}
-local noclipDescendantConnection
-
---==================================================
--- 角色與速度
---==================================================
-
-local function getCharacterParts()
-    local character = player.Character
-
-    if not character then
-        return nil, nil, nil
-    end
-
-    return character,
-        character:FindFirstChildOfClass("Humanoid"),
-        character:FindFirstChild("HumanoidRootPart")
-end
 
 local function parseSpeed(box, status, label)
     local n = tonumber(box.Text)
-
     if not n or n < 1 or n > 100000 or n % 1 ~= 0 then
         status.Text = "請輸入 1～100000 的整數"
         return nil
     end
-
     status.Text = label .. "：" .. n
     return n
 end
 
-walkApply.Activated:Connect(function()
+track(walkApply.Activated:Connect(function()
     local n = parseSpeed(walkBox, walkStatus, "目前移動速度")
     if not n then return end
 
     walkSpeed = n
-
     local _, humanoid = getCharacterParts()
-    if humanoid then
-        humanoid.WalkSpeed = n
-    end
-end)
+    if humanoid then humanoid.WalkSpeed = n end
+end))
 
-flyApply.Activated:Connect(function()
+track(flyApply.Activated:Connect(function()
     local n = parseSpeed(flyBox, flyStatus, "目前飛行速度")
-    if n then
-        flySpeed = n
-    end
-end)
+    if n then flySpeed = n end
+end))
 
 --==================================================
 -- 飛行
@@ -344,7 +273,6 @@ local function stopFlying()
         if oldPlatformStand ~= nil then
             flightHumanoid.PlatformStand = oldPlatformStand
         end
-
         if oldAutoRotate ~= nil then
             flightHumanoid.AutoRotate = oldAutoRotate
         end
@@ -355,23 +283,19 @@ local function stopFlying()
         flightRoot.AssemblyAngularVelocity = Vector3.zero
     end
 
-    flightHumanoid = nil
-    flightRoot = nil
-
+    flightHumanoid, flightRoot = nil, nil
     flyToggle.Text = "飛行：已關閉"
-    flyToggle.BackgroundColor3 = Color3.fromRGB(42, 42, 46)
+    flyToggle.BackgroundColor3 = inactiveColor
 end
 
 local function startFlying()
     local _, humanoid, root = getCharacterParts()
-
     if not humanoid or not root then
         flyStatus.Text = "找不到角色，請重新嘗試"
         return
     end
 
-    flightHumanoid = humanoid
-    flightRoot = root
+    flightHumanoid, flightRoot = humanoid, root
     oldAutoRotate = humanoid.AutoRotate
     oldPlatformStand = humanoid.PlatformStand
 
@@ -387,10 +311,11 @@ local function startFlying()
 
     flying = true
     flyToggle.Text = "飛行：已開啟"
-    flyToggle.BackgroundColor3 = Color3.fromRGB(150, 25, 35)
+    flyToggle.BackgroundColor3 = activeColor
 
     flightConnection = RunService.Heartbeat:Connect(function()
-        if closed or not flying or not root.Parent or not bodyVelocity then
+        if closed or not flying or not root.Parent
+            or not bodyVelocity then
             stopFlying()
             return
         end
@@ -404,23 +329,18 @@ local function startFlying()
         if UIS:IsKeyDown(Enum.KeyCode.W) then
             direction += cf.LookVector
         end
-
         if UIS:IsKeyDown(Enum.KeyCode.S) then
             direction -= cf.LookVector
         end
-
         if UIS:IsKeyDown(Enum.KeyCode.D) then
             direction += cf.RightVector
         end
-
         if UIS:IsKeyDown(Enum.KeyCode.A) then
             direction -= cf.RightVector
         end
-
         if UIS:IsKeyDown(Enum.KeyCode.Space) then
             direction += Vector3.yAxis
         end
-
         if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
             direction -= Vector3.yAxis
         end
@@ -432,34 +352,25 @@ local function startFlying()
         bodyVelocity.Velocity = direction * flySpeed
 
         local look = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
-
         if look.Magnitude > 0.001 then
             root.CFrame = CFrame.lookAt(
-                root.Position,
-                root.Position + look.Unit
+                root.Position, root.Position + look.Unit
             )
         end
-
         root.AssemblyAngularVelocity = Vector3.zero
     end)
 end
 
-flyToggle.Activated:Connect(function()
-    if flying then
-        stopFlying()
-    else
-        startFlying()
-    end
-end)
+track(flyToggle.Activated:Connect(function()
+    if flying then stopFlying() else startFlying() end
+end))
 
 --==================================================
 -- 穿牆
 --==================================================
 
 local function applyNoclipToPart(character, part)
-    if not noclipEnabled or not part:IsA("BasePart") then
-        return
-    end
+    if not noclipEnabled or not part:IsA("BasePart") then return end
 
     oldCollisions[character] = oldCollisions[character] or {}
     local saved = oldCollisions[character]
@@ -478,28 +389,8 @@ local function restoreAllCollisions()
                 part.CanCollide = original
             end
         end
-
         oldCollisions[character] = nil
     end
-end
-
-local function applyNoclipToCharacter(character)
-    if not noclipEnabled or not character then
-        return
-    end
-
-    if noclipDescendantConnection then
-        noclipDescendantConnection:Disconnect()
-        noclipDescendantConnection = nil
-    end
-
-    for _, part in ipairs(character:GetDescendants()) do
-        applyNoclipToPart(character, part)
-    end
-
-    noclipDescendantConnection = character.DescendantAdded:Connect(function(part)
-        applyNoclipToPart(character, part)
-    end)
 end
 
 local function setNoclip(enabled)
@@ -509,7 +400,6 @@ local function setNoclip(enabled)
         noclipConnection:Disconnect()
         noclipConnection = nil
     end
-
     if noclipDescendantConnection then
         noclipDescendantConnection:Disconnect()
         noclipDescendantConnection = nil
@@ -518,20 +408,35 @@ local function setNoclip(enabled)
     if not enabled then
         restoreAllCollisions()
         noclipToggle.Text = "穿牆：已關閉"
-        noclipToggle.BackgroundColor3 = Color3.fromRGB(42, 42, 46)
+        noclipToggle.BackgroundColor3 = inactiveColor
         return
     end
 
     noclipToggle.Text = "穿牆：已開啟"
-    noclipToggle.BackgroundColor3 = Color3.fromRGB(150, 25, 35)
+    noclipToggle.BackgroundColor3 = activeColor
+
+    local function watchCharacter(character)
+        for _, part in ipairs(character:GetDescendants()) do
+            applyNoclipToPart(character, part)
+        end
+
+        if noclipDescendantConnection then
+            noclipDescendantConnection:Disconnect()
+        end
+
+        noclipDescendantConnection = character.DescendantAdded:Connect(
+            function(part)
+                applyNoclipToPart(character, part)
+            end
+        )
+    end
 
     if player.Character then
-        applyNoclipToCharacter(player.Character)
+        watchCharacter(player.Character)
     end
 
     noclipConnection = RunService.Stepped:Connect(function()
         if closed or not noclipEnabled then return end
-
         local character = player.Character
         if not character then return end
 
@@ -543,60 +448,42 @@ local function setNoclip(enabled)
     end)
 end
 
-noclipToggle.Activated:Connect(function()
+track(noclipToggle.Activated:Connect(function()
     setNoclip(not noclipEnabled)
-end)
+end))
 
 --==================================================
--- ESP：紅色輪廓、玩家名稱與距離
+-- ESP
 --==================================================
-
-local espObjects = {}
-local espCharacterConnections = {}
-local espPlayerAddedConnection
-local espPlayerRemovingConnection
 
 local function removeESP(targetPlayer)
     local objects = espObjects[targetPlayer]
+    if not objects then return end
 
-    if objects then
-        if objects.highlight then
-            objects.highlight:Destroy()
-        end
-
-        if objects.billboard then
-            objects.billboard:Destroy()
-        end
-
-        espObjects[targetPlayer] = nil
-    end
+    if objects.highlight then objects.highlight:Destroy() end
+    if objects.billboard then objects.billboard:Destroy() end
+    espObjects[targetPlayer] = nil
 end
 
 local function createESP(targetPlayer, character)
-    if not espEnabled or closed or targetPlayer == player then
-        return
-    end
-
+    if not espEnabled or closed or targetPlayer == player then return end
     removeESP(targetPlayer)
 
     if not character or not character.Parent then return end
 
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
     local head = character:FindFirstChild("Head")
     local root = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
 
-    if not humanoid or not head or not root then
+    if not head or not root or not humanoid then
         task.spawn(function()
-            local readyHead = character:WaitForChild("Head", 8)
-            local readyRoot = character:WaitForChild("HumanoidRootPart", 8)
-            local readyHumanoid = character:FindFirstChildOfClass("Humanoid")
-
-            if espEnabled and not closed
-                and readyHead and readyRoot and readyHumanoid then
+            head = character:WaitForChild("Head", 8)
+            root = character:WaitForChild("HumanoidRootPart", 8)
+            humanoid = character:FindFirstChildOfClass("Humanoid")
+            if espEnabled and not closed and head and root and humanoid then
                 createESP(targetPlayer, character)
             end
         end)
-
         return
     end
 
@@ -620,7 +507,6 @@ local function createESP(targetPlayer, character)
     billboard.Parent = character
 
     local textLabel = Instance.new("TextLabel")
-    textLabel.Name = "PlayerInfo"
     textLabel.Size = UDim2.fromScale(1, 1)
     textLabel.BackgroundTransparency = 1
     textLabel.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -628,8 +514,7 @@ local function createESP(targetPlayer, character)
     textLabel.TextStrokeTransparency = 0.15
     textLabel.Font = Enum.Font.GothamBold
     textLabel.TextSize = 14
-    textLabel.TextScaled = false
-    textLabel.Text = targetPlayer.Name .. " [-- m]"
+    textLabel.Text = targetPlayer.Name .. " [-- studs]"
     textLabel.Parent = billboard
 
     espObjects[targetPlayer] = {
@@ -637,30 +522,7 @@ local function createESP(targetPlayer, character)
         billboard = billboard,
         textLabel = textLabel,
         character = character,
-        lastDistance = nil
     }
-end
-
-local function watchPlayer(targetPlayer)
-    if targetPlayer == player then return end
-
-    if espCharacterConnections[targetPlayer] then
-        espCharacterConnections[targetPlayer]:Disconnect()
-        espCharacterConnections[targetPlayer] = nil
-    end
-
-    espCharacterConnections[targetPlayer] =
-        targetPlayer.CharacterAdded:Connect(function(character)
-            if espEnabled then
-                task.defer(function()
-                    createESP(targetPlayer, character)
-                end)
-            end
-        end)
-
-    if espEnabled and targetPlayer.Character then
-        createESP(targetPlayer, targetPlayer.Character)
-    end
 end
 
 local function setESP(enabled)
@@ -670,54 +532,51 @@ local function setESP(enabled)
         for targetPlayer in pairs(espObjects) do
             removeESP(targetPlayer)
         end
-
         espToggle.Text = "ESP：已關閉"
-        espToggle.BackgroundColor3 = Color3.fromRGB(42, 42, 46)
+        espToggle.BackgroundColor3 = inactiveColor
         return
     end
 
     espToggle.Text = "ESP：已開啟"
-    espToggle.BackgroundColor3 = Color3.fromRGB(150, 25, 35)
+    espToggle.BackgroundColor3 = activeColor
 
     for _, targetPlayer in ipairs(Players:GetPlayers()) do
-        watchPlayer(targetPlayer)
+        if targetPlayer ~= player and targetPlayer.Character then
+            createESP(targetPlayer, targetPlayer.Character)
+        end
     end
 end
 
-espToggle.Activated:Connect(function()
+track(espToggle.Activated:Connect(function()
     setESP(not espEnabled)
-end)
+end))
 
-espPlayerAddedConnection = Players.PlayerAdded:Connect(function(targetPlayer)
-    watchPlayer(targetPlayer)
-end)
+track(Players.PlayerAdded:Connect(function(targetPlayer)
+    track(targetPlayer.CharacterAdded:Connect(function(character)
+        if espEnabled then
+            task.defer(createESP, targetPlayer, character)
+        end
+    end))
+end))
 
-espPlayerRemovingConnection = Players.PlayerRemoving:Connect(function(targetPlayer)
+track(Players.PlayerRemoving:Connect(function(targetPlayer)
     removeESP(targetPlayer)
-
-    if espCharacterConnections[targetPlayer] then
-        espCharacterConnections[targetPlayer]:Disconnect()
-        espCharacterConnections[targetPlayer] = nil
-    end
-end)
+end))
 
 for _, targetPlayer in ipairs(Players:GetPlayers()) do
     if targetPlayer ~= player then
-        watchPlayer(targetPlayer)
+        track(targetPlayer.CharacterAdded:Connect(function(character)
+            if espEnabled then
+                task.defer(createESP, targetPlayer, character)
+            end
+        end))
     end
 end
 
-local distanceAccumulator = 0
-
-local espUpdateConnection = RunService.Heartbeat:Connect(function(dt)
+track(RunService.Heartbeat:Connect(function()
     if closed or not espEnabled then return end
 
-    distanceAccumulator += dt
-    if distanceAccumulator < 0.1 then return end
-    distanceAccumulator = 0
-
-    local myCharacter = player.Character
-    local myRoot = myCharacter and myCharacter:FindFirstChild("HumanoidRootPart")
+    local _, _, myRoot = getCharacterParts()
     if not myRoot then return end
 
     for targetPlayer, objects in pairs(espObjects) do
@@ -725,215 +584,112 @@ local espUpdateConnection = RunService.Heartbeat:Connect(function(dt)
         local targetRoot = targetCharacter
             and targetCharacter:FindFirstChild("HumanoidRootPart")
 
-        if not targetCharacter
-            or targetCharacter ~= objects.character
-            or not targetRoot
-            or not objects.textLabel
-            or not objects.textLabel.Parent then
-
-            if targetCharacter and targetCharacter ~= objects.character then
-                createESP(targetPlayer, targetCharacter)
-            end
-        else
-            local distance = (myRoot.Position - targetRoot.Position).Magnitude
-            local roundedDistance = math.floor(distance + 0.5)
-
-            if objects.lastDistance ~= roundedDistance then
-                objects.lastDistance = roundedDistance
-                objects.textLabel.Text =
-                    targetPlayer.Name .. " [" .. roundedDistance .. " m]"
-            end
-        end
-    end
-end)
-
---==================================================
--- 鎖頭：選擇畫面中心最近的玩家頭部
---==================================================
-
-local function setLockEnabled(enabled)
-    lockEnabled = enabled
-    leftHeld = false
-    lockedTarget = nil
-    reticle.Visible = enabled
-
-    if enabled then
-        lockToggle.Text = "鎖頭：已開啟"
-        lockToggle.BackgroundColor3 = Color3.fromRGB(150, 25, 35)
-        lockStatus.Text = "已開啟：按住左鍵追蹤玩家頭部"
-    else
-        lockToggle.Text = "鎖頭：已關閉"
-        lockToggle.BackgroundColor3 = Color3.fromRGB(42, 42, 46)
-        lockStatus.Text = "鎖頭已關閉"
-    end
-end
-
-lockToggle.Activated:Connect(function()
-    setLockEnabled(not lockEnabled)
-end)
-
-lockKeyApply.Activated:Connect(function()
-    local keyText = string.upper(lockKeyBox.Text)
-
-    if #keyText ~= 1 or not keyText:match("^[A-Z]$") then
-        lockStatus.Text = "快捷鍵只能輸入一個英文字母"
-        return
-    end
-
-    local newKey = Enum.KeyCode[keyText]
-    if not newKey then
-        lockStatus.Text = "快捷鍵無效"
-        return
-    end
-
-    lockHotkey = newKey
-    lockKeyBox.Text = keyText
-    lockStatus.Text = "鎖頭快捷鍵：" .. keyText
-end)
-
-local function mouseOverHub()
-    local mousePos = UIS:GetMouseLocation()
-    local objects = GuiService:GetGuiObjectsAtPosition(mousePos.X, mousePos.Y)
-
-    for _, object in ipairs(objects) do
-        if object:IsDescendantOf(gui) then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function findLockTarget()
-    local camera = Workspace.CurrentCamera
-    if not camera then return nil end
-
-    local viewport = camera.ViewportSize
-    local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
-    local bestPlayer = nil
-    local bestDistance = math.huge
-
-    for _, targetPlayer in ipairs(Players:GetPlayers()) do
-        if targetPlayer ~= player then
-            local character = targetPlayer.Character
-            local head = character and character:FindFirstChild("Head")
-            local humanoid = character
-                and character:FindFirstChildOfClass("Humanoid")
-
-            if head and humanoid and humanoid.Health > 0 then
-                local screenPoint, onScreen =
-                    camera:WorldToViewportPoint(head.Position)
-
-                if onScreen and screenPoint.Z > 0 then
-                    local point = Vector2.new(screenPoint.X, screenPoint.Y)
-                    local distanceFromCenter = (point - center).Magnitude
-
-                    if distanceFromCenter < bestDistance then
-                        bestDistance = distanceFromCenter
-                        bestPlayer = targetPlayer
-                    end
-                end
-            end
-        end
-    end
-
-    return bestPlayer
-end
-
-UIS.InputBegan:Connect(function(input, gameProcessed)
-    if closed or gameProcessed then return end
-    if UIS:GetFocusedTextBox() then return end
-
-    if input.UserInputType == Enum.UserInputType.Keyboard
-        and input.KeyCode == lockHotkey then
-        setLockEnabled(not lockEnabled)
-        return
-    end
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        if lockEnabled and not mouseOverHub() then
-            leftHeld = true
-            lockedTarget = findLockTarget()
-        end
-    end
-end)
-
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        leftHeld = false
-        lockedTarget = nil
-    end
-end)
-
--- 在 Roblox 預設鏡頭更新後執行追蹤
-local lockRenderName = "HarryHub_LockCamera_" .. player.UserId
-
-RunService:BindToRenderStep(
-    lockRenderName,
-    Enum.RenderPriority.Camera.Value + 1,
-    function()
-        if closed or not lockEnabled or not leftHeld then return end
-        if mouseOverHub() then return end
-
-        local camera = Workspace.CurrentCamera
-        if not camera then return end
-
-        local character = lockedTarget and lockedTarget.Character
-        local head = character and character:FindFirstChild("Head")
-        local humanoid = character
-            and character:FindFirstChildOfClass("Humanoid")
-
-        if not head or not humanoid or humanoid.Health <= 0 then
-            lockedTarget = findLockTarget()
-            character = lockedTarget and lockedTarget.Character
-            head = character and character:FindFirstChild("Head")
-            humanoid = character
-                and character:FindFirstChildOfClass("Humanoid")
-        end
-
-        if head and humanoid and humanoid.Health > 0 then
-            camera.CFrame = CFrame.lookAt(
-                camera.CFrame.Position,
-                head.Position
+        if targetCharacter and targetCharacter ~= objects.character then
+            createESP(targetPlayer, targetCharacter)
+        elseif targetRoot and objects.textLabel then
+            local distance = math.floor(
+                (myRoot.Position - targetRoot.Position).Magnitude + 0.5
             )
+            objects.textLabel.Text =
+                targetPlayer.Name .. " [" .. distance .. " studs]"
         end
     end
-)
+end))
+
+--==================================================
+-- 左鍵傳送：開關控制，不使用額外快捷鍵
+--==================================================
+
+local mouse = player:GetMouse()
+
+track(teleportToggle.Activated:Connect(function()
+    teleportEnabled = not teleportEnabled
+    teleportToggle.Text = teleportEnabled
+        and "左鍵傳送：已開啟"
+        or "左鍵傳送：已關閉"
+    teleportToggle.BackgroundColor3 = teleportEnabled
+        and activeColor
+        or inactiveColor
+end))
+
+track(UIS.InputBegan:Connect(function(input, processed)
+    if closed or not teleportEnabled or processed then return end
+    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+
+    -- 不要在點擊 Hub 介面時傳送
+    local mousePosition = UIS:GetMouseLocation()
+    local guiObjects = playerGui:GetGuiObjectsAtPosition(
+        mousePosition.X, mousePosition.Y
+    )
+
+    for _, object in ipairs(guiObjects) do
+        if object:IsDescendantOf(main) then
+            return
+        end
+    end
+
+    local character, humanoid, root = getCharacterParts()
+    if not character or not humanoid or not root then return end
+    if humanoid.Health <= 0 then return end
+
+    local hit = mouse.Hit
+    if not hit then return end
+
+    local destination = hit.Position + Vector3.new(0, 3, 0)
+    character:PivotTo(CFrame.new(destination))
+end))
 
 --==================================================
 -- 重生保留
 --==================================================
 
-player.CharacterAdded:Connect(function(character)
-    if flying then
-        stopFlying()
-    end
+track(player.CharacterAdded:Connect(function(character)
+    if flying then stopFlying() end
 
-    local humanoid = character:WaitForChild("Humanoid", 10)
+    task.spawn(function()
+        local humanoid = character:WaitForChild("Humanoid", 10)
+        if humanoid and not closed then
+            humanoid.WalkSpeed = walkSpeed
+        end
 
-    if humanoid and not closed then
-        humanoid.WalkSpeed = walkSpeed
-    end
+        if noclipEnabled and not closed then
+            for _, part in ipairs(character:GetDescendants()) do
+                applyNoclipToPart(character, part)
+            end
+            if noclipDescendantConnection then
+                noclipDescendantConnection:Disconnect()
+            end
+            noclipDescendantConnection = character.DescendantAdded:Connect(
+                function(part)
+                    applyNoclipToPart(character, part)
+                end
+            )
+        end
 
-    if noclipEnabled and not closed then
-        applyNoclipToCharacter(character)
-    end
-end)
+        if espEnabled and not closed then
+            task.defer(function()
+                for _, targetPlayer in ipairs(Players:GetPlayers()) do
+                    if targetPlayer ~= player and targetPlayer.Character then
+                        createESP(targetPlayer, targetPlayer.Character)
+                    end
+                end
+            end)
+        end
+    end)
+end))
 
 --==================================================
 -- 最小化
 --==================================================
 
-minimize.Activated:Connect(function()
+track(minimize.Activated:Connect(function()
     minimizedState = not minimizedState
     content.Visible = not minimizedState
-
     main.Size = minimizedState
         and UDim2.fromOffset(360, 42)
-        or UDim2.fromOffset(360, 560)
-
+        or UDim2.fromOffset(360, 490)
     minimize.Text = minimizedState and "+" or "－"
-end)
+end))
 
 --==================================================
 -- 拖曳
@@ -942,35 +698,30 @@ end)
 local dragging = false
 local dragStart
 local startPosition
-local dragInputConnection
 
-header.InputBegan:Connect(function(input)
+track(header.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-
         dragging = true
         dragStart = input.Position
         startPosition = main.Position
 
-        if dragInputConnection then
-            dragInputConnection:Disconnect()
-        end
-
-        dragInputConnection = input.Changed:Connect(function()
+        local ended
+        ended = input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
+                ended:Disconnect()
             end
         end)
     end
-end)
+end))
 
-local inputChangedConnection = UIS.InputChanged:Connect(function(input)
+track(UIS.InputChanged:Connect(function(input)
     if dragging and (
         input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch
     ) then
         local delta = input.Position - dragStart
-
         main.Position = UDim2.new(
             startPosition.X.Scale,
             startPosition.X.Offset + delta.X,
@@ -978,57 +729,41 @@ local inputChangedConnection = UIS.InputChanged:Connect(function(input)
             startPosition.Y.Offset + delta.Y
         )
     end
-end)
+end))
 
 --==================================================
 -- 關閉與清理
 --==================================================
 
-close.Activated:Connect(function()
+track(close.Activated:Connect(function()
     if closed then return end
     closed = true
 
     stopFlying()
     setNoclip(false)
     setESP(false)
-    setLockEnabled(false)
 
-    RunService:UnbindFromRenderStep(lockRenderName)
+    for _, connection in ipairs(connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+    table.clear(connections)
 
     if noclipConnection then
         noclipConnection:Disconnect()
         noclipConnection = nil
     end
-
     if noclipDescendantConnection then
         noclipDescendantConnection:Disconnect()
         noclipDescendantConnection = nil
     end
 
-    if espUpdateConnection then
-        espUpdateConnection:Disconnect()
-    end
+    restoreAllCollisions()
+    gui:Destroy()
+end))
 
-    if espPlayerAddedConnection then
-        espPlayerAddedConnection:Disconnect()
-    end
-
-    if espPlayerRemovingConnection then
-        espPlayerRemovingConnection:Disconnect()
-    end
-
-    for targetPlayer, connection in pairs(espCharacterConnections) do
-        connection:Disconnect()
-        espCharacterConnections[targetPlayer] = nil
-    end
-
-    if inputChangedConnection then
-        inputChangedConnection:Disconnect()
-    end
-
-    if dragInputConnection then
-        dragInputConnection:Disconnect()
-    end
+print("Harry Hub Studio 測試版已載入")
 
     gui:Destroy()
 end)
